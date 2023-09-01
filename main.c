@@ -183,6 +183,12 @@ void scaleVec(fvec3d *v) { // we dont take in and out since we can modify this v
   v->y = ((v->y + 1.0) * SH2);
 }
 
+void computeNormal(fvec3d *a, fvec3d *b, fvec3d *n) {
+  n->x = a->y*b->z - a->z*b->y;
+  n->y = a->z*b->x - a->x*b->z;
+  n->z = a->x*b->y - a->y*b->x;
+}
+
 
 void pixel(int x, int y, int r, int g, int b) {
   glColor3ub(r, g, b);
@@ -233,10 +239,20 @@ void draw3D() {
   }
   for (int i = 0; i<Cube.numFaces; i++) {
     int ind[3];
-    ind[0] = Cube.faces[i].ind[0];
-    ind[1] = Cube.faces[i].ind[1];
-    ind[2] = Cube.faces[i].ind[2];
-    drawTriangle(&vertexes[ind[0]], &vertexes[ind[1]], &vertexes[ind[2]]);
+    fvec3d *v0 = &vertexes[Cube.faces[i].ind[0]];
+    fvec3d *v1 = &vertexes[Cube.faces[i].ind[1]];
+    fvec3d *v2 = &vertexes[Cube.faces[i].ind[2]];
+    fvec3d a, b; 
+    a.x = v1->x - v0->x;
+    a.y = v1->y - v0->y;
+    a.z = v1->z - v0->z;
+    b.x = v2->x - v0->x;
+    b.y = v2->y - v0->y;
+    b.z = v2->z - v0->z;
+    fvec3d n; computeNormal(&b, &a, &n);
+    if (n.z > 0) {
+      drawTriangle(v0, v1, v2);
+    }
   }
   free(vertexes);
 }
