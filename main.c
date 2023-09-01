@@ -17,6 +17,7 @@
 #define GLSH (SH * pixelScale)
 #define square(x) (x) * (x)
 
+
 typedef struct {
   int fr1, fr2;
 } time;
@@ -24,12 +25,13 @@ time T;
 
 typedef struct {
   int w, s, a, d;
+  int m;
 } keys;
 keys K;
 
 typedef struct {
   float x, y, z;
-  int a;
+  float a;
   int l;
 } player;
 player P;
@@ -64,42 +66,39 @@ mesh Cube;
 typedef float mat4[4][4];
 
 mat4 projMat;
+mat4 rotYMat;
 
-void movePlayer() {
-  if (K.w == 1) {
-    P.z += 0.1;
-  }
-  if (K.s == 1) {
-    P.z -= 0.1;
-  }
-  if (K.d == 1) {
-    P.x += 0.1;
-  }
-  if (K.a == 1) {
-    P.x -= 0.1;
+typedef struct {
+  float coefs[4][4];
+} mat4x4;
+
+void fillMatZeros(mat4 coefs) {
+  for (int i = 0; i<4; i++) {
+    for (int j = 0; j<4; j++) {
+      coefs[i][j]=0.0;
+    }
   }
 }
 
-void moveVec(fvec3d *vec) { // from player position
-  (*vec).x -= P.x;
-  (*vec).y -= P.y;
-  (*vec).z -= P.z;
+void createProjMat(float fov, float zn, float zf, mat4 coefs) {
+  fillMatZeros(coefs);
+  // fov in degrees
+  float a = (float)SH / (float)SW;
+  float f = 1.0 / tan(fov * M_PI / 360.0);
+  float q = zf / (float)(zf - zn);
+  coefs[0][0] = a * f;
+  coefs[1][1] = f;
+  coefs[2][2] = q;
+  coefs[3][2] = -zn * q;
+  coefs[2][3] = 1;
 }
 
-void multMatVec(fvec3d *i, fvec3d *o, mat4 *mat) {
-  o->x = i->x * (*mat)[0][0] + i->y * (*mat)[1][0] + i->z * (*mat)[2][0] + (*mat)[3][0];
-  o->y = i->x * (*mat)[0][1] + i->y * (*mat)[1][1] + i->z * (*mat)[2][1] + (*mat)[3][1];
-  o->z = i->x * (*mat)[0][2] + i->y * (*mat)[1][2] + i->z * (*mat)[2][2] + (*mat)[3][2];
-  float w =
-      i->x * (*mat)[0][3] + i->y * (*mat)[1][3] + i->z * (*mat)[2][3] + (*mat)[3][3];
-  if (w != 0.0) {
-    *o = (fvec3d){o->x / w, o->y / w, o->z};
-  }
-}
-
-void scaleVec(fvec3d *v) { // we dont take in and out since we can modify this vector directly
-  v->x = ((v->x + 1.0) * SW2);
-  v->y = ((v->y + 1.0) * SH2);
+void updateRotYMat(float a, mat4 coefs) {
+  coefs[0][0]=cos(a);
+  coefs[2][2]=cos(a);
+  coefs[0][2]=sin(a);
+  coefs[1][1]=1.0;
+  coefs[2][0]=-sin(a);
 }
 
 void readObj() {
@@ -138,6 +137,53 @@ void readObj() {
   fclose(fp);
 }
 
+void movePlayer() {
+  if (K.d == 1 && K.m == 1) {
+    P.a += 0.02;
+  }
+  if (K.a == 1 && K.m == 1) {
+    P.a -= 0.02;
+  }
+  float dx=sin(P.a)*0.1, dz=cos(P.a)*0.1;
+  if (K.w == 1 && K.m == 0) {
+    P.x += dx;
+    P.z += dz;
+  }
+  if (K.s == 1 && K.m == 0) {
+    P.x -= dx; 
+    P.z -= dz;
+  }
+  if (K.d == 1 && K.m == 0) {
+    P.x += dz; P.z -= dx;
+  }
+  if (K.a == 1 && K.m == 0) {
+    P.x -= dz; P.z += dx;
+  }
+}
+
+void moveVec(fvec3d *vec) { // from player position
+  (*vec).x -= P.x;
+  (*vec).y -= P.y;
+  (*vec).z -= P.z;
+}
+
+void multMatVec(fvec3d *i, fvec3d *o, mat4 *mat) {
+  o->x = i->x * (*mat)[0][0] + i->y * (*mat)[1][0] + i->z * (*mat)[2][0] + (*mat)[3][0];
+  o->y = i->x * (*mat)[0][1] + i->y * (*mat)[1][1] + i->z * (*mat)[2][1] + (*mat)[3][1];
+  o->z = i->x * (*mat)[0][2] + i->y * (*mat)[1][2] + i->z * (*mat)[2][2] + (*mat)[3][2];
+  float w =
+      i->x * (*mat)[0][3] + i->y * (*mat)[1][3] + i->z * (*mat)[2][3] + (*mat)[3][3];
+  if (w != 0.0) {
+    *o = (fvec3d){o->x / w, o->y / w, o->z};
+  }
+}
+
+void scaleVec(fvec3d *v) { // we dont take in and out since we can modify this vector directly
+  v->x = ((v->x + 1.0) * SW2);
+  v->y = ((v->y + 1.0) * SH2);
+}
+
+
 void pixel(int x, int y, int r, int g, int b) {
   glColor3ub(r, g, b);
   glBegin(GL_POINTS);
@@ -170,6 +216,7 @@ void drawTriangle(fvec3d *v0, fvec3d *v1, fvec3d *v2) {
 }
 
 void draw3D() {
+  updateRotYMat(P.a, rotYMat);
   fvec3d *vertexes = malloc(sizeof(fvec3d)*Cube.numVertex);// cube copy (to not alter original cooridinates)
   for (int i = 0; i<Cube.numVertex; i++) {
     vertexes[i] = Cube.vertexes[i]; // have to assign each array element, the pointer to an array only points to its first element
@@ -178,6 +225,8 @@ void draw3D() {
     fvec3d *v = &(vertexes[i]);
     moveVec(v);
     fvec3d o;
+    multMatVec(v, &o, &rotYMat);
+    *v=o;
     multMatVec(v, &o, &projMat);
     scaleVec(&o);
     *v=o;
@@ -194,7 +243,7 @@ void draw3D() {
 
 void display() {
   int x, y;
-  if (T.fr1 - T.fr2 >= 42) { // getting ±24fps
+  if (T.fr1 - T.fr2 >= 20) { // getting ±24fps
     clearBackground();
     movePlayer();
     draw3D();
@@ -215,20 +264,11 @@ void init() {
     M.cos[dg] = cos(u);
     M.sin[dg] = sin(u);
   }
-  float a = (float)SH / (float)SW;
-  float f = 1.0 / tan(90.0 * M_PI / 360.0);
-  float zf = 100.0;
-  float zn = 0.01;
-  float q = zf / (float)(zf - zn);
-  // P.x=70; P.z=-110; P.y=20;
   P.x = 0.3;
   P.z = -5.0;
   P.y = 0.2;
-  projMat[0][0] = a * f;
-  projMat[1][1] = f;
-  projMat[2][2] = q;
-  projMat[3][2] = -zn * q;
-  projMat[2][3] = 1;
+  P.a=0.0;
+  createProjMat(90.0, 0.01, 100.0, projMat);
 }
 
 void keysDown(unsigned char key, int x, int y) {
@@ -244,6 +284,9 @@ void keysDown(unsigned char key, int x, int y) {
   if (key == 'd') {
     K.d = 1;
   }
+  if (key == 'm') {
+    K.m = 1;
+  }
 }
 
 void keysUp(unsigned char key, int x, int y) {
@@ -258,6 +301,9 @@ void keysUp(unsigned char key, int x, int y) {
   }
   if (key == 'd') {
     K.d = 0;
+  }
+  if (key == 'm') {
+    K.m = 0;
   }
 }
 
