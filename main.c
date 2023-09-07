@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "./lib/vector.h" 
 
 #define res 1
 #define SW 160 * res // Screen width
@@ -43,8 +44,11 @@ typedef struct {
 } col;
 col colors[3];
 
-typedef struct {
-  float x, y, z;
+typedef union {
+  struct {
+    float x, y, z;
+  };
+  float array[3];
 } fvec3d;
 
 typedef struct {
@@ -240,6 +244,17 @@ void filledTriangle(fvec3d *v0, fvec3d *v1, fvec3d *v2, float u) {
     glEnd();
 }
 
+void filledQuad(fvec3d *v0, fvec3d *v1, fvec3d *v2, fvec3d *v3, float u) {
+    u = -u;
+    glBegin(GL_TRIANGLES);
+    glColor3f( u, u, u ); 
+    glVertex2i(v0->x * pixelScale + 2, v0->y * pixelScale + 2);
+    glVertex2i(v1->x * pixelScale + 2, v1->y * pixelScale + 2);
+    glVertex2i(v2->x * pixelScale + 2, v2->y * pixelScale + 2);
+    glVertex2i(v3->x * pixelScale + 2, v3->y * pixelScale + 2);
+    glEnd();
+}
+
 void movePlayer() {
   fvec3d mv = {0.0,0.0,0.0};
 
@@ -406,6 +421,14 @@ void quicksortPTri(ptriangle **a, int start, int end) {
   }
 }
 
+void printfvec3d(fvec3d *v, char mess[8]) {
+  printf("%s %f %f %f", mess, v->x, v->y, v->z);
+}
+
+int clipping(fvec3d *v[3]) {
+  return EXIT_SUCCESS;
+
+}
 
 void draw3D() {
   int counter = 0;
@@ -418,15 +441,13 @@ void draw3D() {
     fvec3d *v = &(vertexes[i]);
     moveVec(v);
     fvec3d o;
-    multMatVec(v, &o, &rotYMat);
-    *v=o;
-    multMatVec(v, &o, &rotXMat);
-    *v=o;
-    multMatVec(v, &o, &projMat);
-    scaleVec(&o);
-    *v=o;
   }
+
   for (int i = 0; i<Cube.numFaces; i++) {
+    fvec3d *v[3]; 
+    v[0] = &vertexes[Cube.faces[i].ind[0]];
+    v[1] = &vertexes[Cube.faces[i].ind[1]];
+    v[2] = &vertexes[Cube.faces[i].ind[2]];
     int ind[3];
     fvec3d *v0 = &vertexes[Cube.faces[i].ind[0]];
     fvec3d *v1 = &vertexes[Cube.faces[i].ind[1]];
@@ -443,15 +464,12 @@ void draw3D() {
     b.z = v2o->z - v0o->z;
     fvec3d center = getCenterTri(v0o, v1o, v2o);
     fvec3d c;
-    // c.x = v0o->x - C.x;
-    // c.y = v0o->y - C.y;
-    // c.z = v0o->z - C.z;
     c.x = center.x - C.x;
     c.y = center.y - C.y;
     c.z = center.z - C.z;
     norm(&c);
     fvec3d n; computeNormal(&a, &b, &n);
-    // drawNormal(*v0, *v0o, n);
+    drawNormal(*v0, *v0o, n);
     float prod = dotProduct(&c, &n);
     if (prod >= -1 && prod <= 0) {
       ptriangle *ptri = malloc(sizeof(ptriangle));
@@ -461,20 +479,84 @@ void draw3D() {
       ptri->dist = getDist(&c, &center);
       ptri->prod = prod;
       arrTri[counter] = ptri;
-      // drawTriangle(v0, v1, v2);
       counter += 1;
     }
   }
-  // baiscSortTriangles(arrTri, counter);
-  quicksortPTri(arrTri, 0, counter-1);
+
   for (int i = 0; i < counter; i++) {
     ptriangle *face = arrTri[i];
     fvec3d *v0 = face->vecArr[0];
     fvec3d *v1 = face->vecArr[1];
     fvec3d *v2 = face->vecArr[2];
-    filledTriangle(v0, v1, v2, face->prod);
+    int behind = 0;
+    int place= 0;
+    for (int j = 0; j < 3; j++) {
+      if (face->vecArr[j]->z < 0.01) {
+        behind ++;
+        printf("some behind : %f\n", face->vecArr[j]->z);
+      } else {
+        place += j;
+      }
+    }
+    switch (behind) {
+      case 0: {
+        filledTriangle(v0, v1, v2, face->prod);
+        break;
+      }
+      case 1: {
+        int behind_id = 3-place;
+        printf("1 behind : z : %f\n", face->vecArr[behind_id]->z);
+        // fvec3d new0, new1;
+        break;
+      }
+      case 2: {
+        float zn = 0.01;
+        int b0 = (b0 = place-1) >= 0 ? b0 : place+2; //behind 1
+        int b1 = (b1 = place+1) < 3 ? b1 : place-2;
+        int f0 = place;
+        fvec3d *vb0 = face->vecArr[b0];
+        fvec3d *vb1 = face->vecArr[b1];
+        fvec3d *vf0 = face->vecArr[f0];
+        fvec3d r0, r1; // replacement for b0 and b1;
+        float u0 = (zn - vb0->z)/(vf0->z - vb0->z);
+        float u1 = (zn - vb1->z)/(vf0->z - vb1->z);
+        printfvec3d(vb0, "vb0 bef");
+        printf("two behind --\n");
+        for (int i = 0; i < 3; i++) {
+          vb0->array[i] = vb0->array[i] + (vf0->array[i] - vb0->array[i])*u0;
+          vb1->array[i] = vb1->array[i] + (vf0->array[i] - vb1->array[i])*u1;
+        }
+        printf("two behind ++\n");
+        filledTriangle(v0, v1, v0, face->prod);
+        drawTriangle(v0, v1, v2);
+        break;
+      }
+      default: {
+        continue;
+      }
+    }
+    // printf("v0 : z : %f\n", v0->z);
+    // printf("v1 : z : %f\n", v1->z);
+    // printf("v2 : z : %f\n", v2->z);
     free((pptriangle)arrTri[i]);
   }
+
+
+  for (int i = 0; i<Cube.numVertex; i++) {
+    fvec3d *v = &(vertexes[i]);
+    fvec3d o;
+    multMatVec(v, &o, &rotYMat);
+    *v=o;
+    multMatVec(v, &o, &rotXMat);
+    *v=o;
+    multMatVec(v, &o, &projMat);
+    scaleVec(&o);
+    *v=o;
+  }
+  for (int i = 0; i<Cube.numFaces; i++) {
+  }
+  // baiscSortTriangles(arrTri, counter);
+  quicksortPTri(arrTri, 0, counter-1);
   free(vertexes);
 }
 
@@ -495,6 +577,23 @@ void display() {
 
 void init() {
   readObj();
+  vector v;
+  vector_init(&v);
+  for (int i = 0; i < 6; i++) {
+    int *to_push = malloc(sizeof(int));
+    *to_push = i*10;
+    v.push(&v, to_push);
+  }
+  for (int i = 0; i < v.total(&v); i++) {
+    int *item = v.get(&v, i);
+    printf("item at %i : %i\n", i, *item);
+  }
+  v.rmv_free(&v, 1);
+  for (int i = 0; i < v.total(&v); i++) {
+    int *item = v.get(&v, i);
+    printf("item at %i : %i\n", i, *item);
+  }
+  v.free_w_elem(&v);
   C.x = 0.3;
   C.z = -5.0;
   C.y = 0.2;
